@@ -7,7 +7,8 @@ Even Hub WebView for the G2 note.com reader.
 - Node.js ≥ 20.
 - The CORS proxy from `../gateway/` deployed (or any equivalent that fronts
   `https://note.com/api/*` and rewrites cookies the same way).
-- Even Realities iPhone app, for sideload testing.
+- Even Realities companion app on a phone (iOS or Android) for sideload
+  testing.
 
 ## Configure
 
@@ -21,7 +22,7 @@ cp .env.example .env.local
 it to something you own before uploading to the Even Hub store — the field
 is the unique identifier for the installed package.
 
-## Dev mode (iPhone sideload via QR)
+## Dev mode (phone sideload via QR)
 
 `npm run dev` uses Vite's own dev proxy (`/api/note` → `https://note.com/api`)
 which handles CORS and cookie rewriting locally; the `VITE_NOTE_PROXY_BASE`
@@ -34,11 +35,12 @@ npm run dev
 npx evenhub qr --url http://<Mac-LAN-IP>:5173
 ```
 
-On the iPhone:
+In the Even Realities app (iOS or Android):
 *Even Hub tab → マイプラグイン → (icon) → プロトタイプモード → QR スキャナ*
 
-(Disable iCloud Private Relay on the iPhone before scanning, otherwise the
-phone can't reach the Mac's LAN IP.)
+On iOS, disable iCloud Private Relay before scanning or the phone can't
+reach the Mac's LAN IP. On Android, make sure the phone is on the same
+Wi-Fi as the Mac and nothing (VPN, firewall) is blocking port 5173.
 
 ## Desktop simulator
 
@@ -65,10 +67,11 @@ Even Hub store should treat as an update.
   `VITE_NOTE_PROXY_BASE` in prod, Vite's `/api/note` in dev. Handles
   auth (`Authorization: Bearer`), UI state persistence via
   `bridge.setLocalStorage`, and opt-in credential storage for
-  auto-login (iOS WKWebView drops recent bridge writes on force-kill, so
-  tokens alone aren't durable).
+  auto-login. The latter is there because iOS WKWebView drops recent
+  bridge writes on a force-kill so tokens alone aren't durable; the
+  Android WebView hasn't been tested for the same behavior.
 - `src/main.ts` — Even Hub WebView entry point. Awaits the bridge, sets
-  up two text containers on the G2 (body + pager), wires up the iPhone
+  up two text containers on the G2 (body + pager), wires up the phone
   companion DOM, and handles touch/scroll events from the glasses.
 - `src/wrap.ts` — CJK-aware line wrapping using pretext's `getTextWidth`
   so justification on the G2 pager matches pixel widths of the LVGL font.

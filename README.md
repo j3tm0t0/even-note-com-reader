@@ -3,27 +3,29 @@
 [日本語版 README はこちら](README-ja.md)
 
 note.com reader for Even Realities G2 smart glasses, built on the Even Hub
-SDK. The iPhone Even Realities app loads this WebView which drives the G2
-display over the Even Hub bridge.
+SDK. The Even Realities companion app (iOS or Android) loads this WebView
+and drives the G2 display over the Even Hub bridge.
 
-![Reading a note.com article on the Even G2 display](screenshot.png)
+| Phone companion | G2 display |
+| :---: | :---: |
+| ![Companion app on the phone](screenshots/smartphone.png) | ![Reading a note.com article on the Even G2 display](screenshots/glass.png) |
 
 ## Layout
 
-- [`app/`](app/) — Even Hub WebView app (Vite + TypeScript). The iPhone
+- [`app/`](app/) — Even Hub WebView app (Vite + TypeScript). The phone
   companion UI, and the G2 reader logic that pushes pages to the glasses.
 - [`gateway/`](gateway/) — CloudFormation template for a CloudFront
   distribution that acts as a CORS proxy to `note.com`. Required for
   production builds because browsers won't share cookies cross-site to
-  `note.com` from a WebView, and WKWebView additionally drops even
-  `SameSite=None` third-party cookies.
+  `note.com` from a WebView; on iOS WKWebView additionally drops even
+  `SameSite=None` third-party cookies entirely.
 
 ## Pieces at a glance
 
 ```
               ┌──────────────────────────┐
-   iPhone ─── │ Even Hub WebView (app/)  │ ─── BLE ───▶ Even G2 glasses
-              │   - iPhone companion UI  │
+    Phone ─── │ Even Hub WebView (app/)  │ ─── BLE ───▶ Even G2 glasses
+              │   - phone companion UI   │
               │   - G2 page renderer     │
               └──────────────┬───────────┘
                              │ HTTPS + Authorization: Bearer <token>
@@ -75,9 +77,9 @@ straight from a WebView messy:
   `POST /api/v1/sessions/sign_in` request. The proxy forwards it straight
   to `note.com` unchanged.
 - The "ログイン状態を保持する" opt-in persists `{email, password}` via the
-  Even Hub bridge's local storage, which lives inside the iPhone Even
-  Realities app's sandbox. Turning the checkbox off on login, or hitting
-  Logout, clears it.
+  Even Hub bridge's local storage, which lives inside the Even Realities
+  companion app's own sandbox on the phone. Turning the checkbox off on
+  login, or hitting Logout, clears it.
 - No analytics, telemetry, or third-party beacons. The only outbound
   destination from the app is the proxy origin you configure via
   `VITE_NOTE_PROXY_BASE`.
