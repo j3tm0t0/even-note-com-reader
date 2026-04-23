@@ -1,0 +1,187 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  CORS proxy for note.com, sitting in front of Even Hub's WebView client.
+  Exposes `/api/*` on a custom domain, forwards to note.com/api/*, rewrites
+  Set-Cookie attributes so the browser can store the session, and also
+  surfaces the session id as `X-Session-Token` so clients that can't hold
+  cross-site cookies (iOS WKWebView) can replay it via `Authorization: Bearer`.
+
+Parameters:
+  DomainName:
+    Type: String
+    Description: >
+      Fully-qualified domain for the proxy (e.g. `note-proxy.example.com`).
+      The ACM certificate at CertificateArn must cover this name.
+    AllowedPattern: '^[a-z0-9.-]+\.[a-z]{2,}$'
+
+  CertificateArn:
+    Type: String
+    Description: >
+      ARN of an ACM certificate in us-east-1 that matches DomainName.
+      CloudFront only reads certificates from us-east-1 regardless of the
+      stack's deployment region.
+    AllowedPattern: '^arn:aws:acm:us-east-1:\d{12}:certificate/[a-f0-9-]+$'
+
+  PriceClass:
+    Type: String
+    Default: PriceClass_200
+    AllowedValues:
+      - PriceClass_All
+      - PriceClass_200
+      - PriceClass_100
+
+Resources:
+  # ---------- CloudFront Functions ----------
+  ViewerRequestFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub '${AWS::StackName}-viewer-request'
+      AutoPublish: true
+      FunctionConfig:
+        Comment: >-
+          OPTIONS preflight 204 + translate Authorization: Bearer <token>
+          into Cookie: _note_session_v5=<token>.
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+            var request = event.request;
+            if (request.method === 'OPTIONS') {
+                var origin = (request.headers.origin && request.headers.origin.value) || '*';
+                var reqHdr = request.headers['access-control-request-headers'];
+                return {
+                    statusCode: 204,
+                    statusDescription: 'No Content',
+                    headers: {
+                        'access-control-allow-origin': { value: origin },
+                        'access-control-allow-credentials': { value: 'true' },
+                        'access-control-allow-methods': { value: 'GET, POST, PUT, DELETE, OPTIONS' },
+                        'access-control-allow-headers': { value: reqHdr ? reqHdr.value : 'Content-Type, Authorization' },
+                        'access-control-max-age': { value: '600' },
+                        'vary': { value: 'Origin' },
+                    },
+                };
+            }
+            var auth = request.headers.authorization;
+            if (auth && auth.value) {
+                var m = auth.value.match(/^Bearer\s+(.+)$/i);
+                if (m) {
+                    // CloudFront Function v2.0: use request.cookies, not request.headers.cookie.
+                    if (!request.cookies) request.cookies = {};
+                    request.cookies['_note_session_v5'] = { value: m[1] };
+                    delete request.headers.authorization;
+                }
+            }
+            return request;
+        }
+
+  ViewerResponseFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub '${AWS::StackName}-viewer-response'
+      AutoPublish: true
+      FunctionConfig:
+        Comment: >-
+          Strip Domain/HttpOnly/SameSite/Secure from Set-Cookie and re-add
+          SameSite=None; Secure. Echo request Origin as CORS allow-origin.
+          Expose `_note_session_v5` value as X-Session-Token for non-cookie
+          clients.
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+            var request = event.request;
+            var response = event.response;
+
+            var originHeader = request.headers.origin;
+            if (originHeader && originHeader.value) {
+                response.headers['access-control-allow-origin'] = { value: originHeader.value };
+                response.headers['access-control-allow-credentials'] = { value: 'true' };
+                response.headers['vary'] = { value: 'Origin' };
+            }
+
+            var cookies = response.cookies;
+            if (cookies) {
+                for (var name in cookies) {
+                    var c = cookies[name];
+                    var parts = (c.attributes || '').split(';');
+                    var kept = [];
+                    for (var i = 0; i < parts.length; i++) {
+                        var p = parts[i].trim();
+                        if (!p) continue;
+                        var low = p.toLowerCase();
+                        if (low.indexOf('domain=') === 0) continue;
+                        if (low === 'httponly') continue;
+                        if (low.indexOf('samesite=') === 0) continue;
+                        if (low === 'secure') continue;
+                        kept.push(p);
+                    }
+                    kept.push('SameSite=None');
+                    kept.push('Secure');
+                    c.attributes = kept.join('; ');
+                }
+
+                if (cookies['_note_session_v5']) {
+                    response.headers['x-session-token'] = {
+                        value: cookies['_note_session_v5'].value,
+                    };
+                    response.headers['access-control-expose-headers'] = {
+                        value: 'X-Session-Token',
+                    };
+                }
+            }
+
+            return response;
+        }
+
+  # ---------- CloudFront distribution ----------
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub 'note.com CORS proxy for ${DomainName}'
+        Aliases:
+          - !Ref DomainName
+        HttpVersion: http2
+        IPV6Enabled: true
+        PriceClass: !Ref PriceClass
+        ViewerCertificate:
+          AcmCertificateArn: !Ref CertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+        Origins:
+          - Id: note-com
+            DomainName: note.com
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols:
+                - TLSv1.2
+              HTTPSPort: 443
+        DefaultCacheBehavior:
+          TargetOriginId: note-com
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [HEAD, DELETE, POST, GET, OPTIONS, PUT, PATCH]
+          CachedMethods: [HEAD, GET]
+          Compress: true
+          # Managed: CachingDisabled — auth responses vary per-user, cache off.
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          # Managed: AllViewerExceptHostHeader — forward every header the
+          # viewer sent (Cookie, Authorization, Origin, …) except Host so
+          # note.com's origin sees its own hostname.
+          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt ViewerRequestFunction.FunctionARN
+            - EventType: viewer-response
+              FunctionARN: !GetAtt ViewerResponseFunction.FunctionARN
+
+Outputs:
+  DistributionId:
+    Value: !Ref Distribution
+  DistributionDomainName:
+    Value: !GetAtt Distribution.DomainName
+    Description: >-
+      Point a DNS A/AAAA alias at this value for DomainName
+      (CloudFront hosted zone id is Z2FDTNDATAQYW2).
+  ProxyUrl:
+    Value: !Sub 'https://${DomainName}/api'
+    Description: Use this as VITE_NOTE_PROXY_BASE in the app build.
