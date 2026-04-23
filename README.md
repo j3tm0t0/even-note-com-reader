@@ -6,6 +6,8 @@ note.com reader for Even Realities G2 smart glasses, built on the Even Hub
 SDK. The iPhone Even Realities app loads this WebView which drives the G2
 display over the Even Hub bridge.
 
+![Reading a note.com article on the Even G2 display](screenshot.png)
+
 ## Layout
 
 - [`app/`](app/) — Even Hub WebView app (Vite + TypeScript). The iPhone
@@ -82,4 +84,4 @@ straight from a WebView messy:
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Apache License 2.0. See [LICENSE](LICENSE).
