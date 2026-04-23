@@ -61,6 +61,25 @@ straight from a WebView messy:
 1. Stand up the proxy → [`gateway/README.md`](gateway/README.md).
 2. Build and install the app → [`app/README.md`](app/README.md).
 
+## Credential handling
+
+- The proxy **does not record credentials**. CloudFront access logs,
+  real-time logs, and WAF logging are all disabled in `gateway/template.yaml`;
+  neither CloudFront Function emits `console.log`, so nothing about a
+  request reaches CloudWatch Logs either. Only the built-in CloudFront
+  CloudWatch metrics (request counts, bytes, error rates) are collected,
+  and they carry no per-request payload.
+- The app sends the user's email and password only as the body of a single
+  `POST /api/v1/sessions/sign_in` request. The proxy forwards it straight
+  to `note.com` unchanged.
+- The "ログイン状態を保持する" opt-in persists `{email, password}` via the
+  Even Hub bridge's local storage, which lives inside the iPhone Even
+  Realities app's sandbox. Turning the checkbox off on login, or hitting
+  Logout, clears it.
+- No analytics, telemetry, or third-party beacons. The only outbound
+  destination from the app is the proxy origin you configure via
+  `VITE_NOTE_PROXY_BASE`.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
